@@ -25,6 +25,7 @@
 
 #include <iostream>
 #include <boost/program_options.hpp>
+#include "torrentmanager.h"
 
 int main (int argc, char *argv [])
 {
@@ -32,7 +33,7 @@ int main (int argc, char *argv [])
 	description.add_options ()
 		("help,h", "show this message.")
 		("file,f", boost::program_options::value<std::string> (),
-				"file with pathes to torrents.")
+				"file with pathes to torrents. This option overwrites --torrent.")
 		("torrent,t", boost::program_options::value<std::string> (),
 				"path to torrent file.");
 
@@ -70,5 +71,20 @@ int main (int argc, char *argv [])
 		return 1;
 	}
 
-    return 0;
+
+	std::string path = fileWithTorrents.empty () ? torrent : fileWithTorrents;
+	if (path.empty ())
+	{
+		std::cout << "Please, set --file or --torrent parameter." << std::endl;
+		return 1;
+	}
+
+	IFVGrabber::TorrentManager *manager = new IFVGrabber::TorrentManager;
+	manager->AddFile (path);
+
+	char a;
+	std::cin.unsetf(std::ios_base::skipws);
+	std::cin >> a;
+
+	return 0;
 }
