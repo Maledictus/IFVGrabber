@@ -1,5 +1,38 @@
-project(ifvgrabber)
+CMAKE_MINIMUM_REQUIRED (VERSION 2.6)
+PROJECT (ifvgrabber)
 
-add_executable(ifvgrabber main.cpp)
+IF (UNIX)
+	SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden -fno-strict-aliasing -std=c++0x")
+	SET (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--as-needed")
+	SET (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--as-needed")
+	SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+ENDIF (UNIX)
 
-install(TARGETS ifvgrabber RUNTIME DESTINATION bin)
+FIND_PACKAGE (Boost REQUIRED COMPONENTS program_options)
+
+INCLUDE_DIRECTORIES (${CMAKE_CURRENT_BINARY_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}
+	${Boost_INCLUDE_DIR})
+
+SET (SRCS
+	main.cpp
+	)
+
+SET (HEADERS
+	)
+
+SOURCE_GROUP ("core\\headers" FILES ${HEADERS})
+SOURCE_GROUP ("core\\sources" FILES ${SRCS})
+
+IF (UNIX)
+	ADD_EXECUTABLE (ifvgrabber WIN32
+		${SRCS}
+		${HEADERS}
+		)
+ENDIF (UNIX)
+
+TARGET_LINK_LIBRARIES (ifvgrabber
+		${Boost_PROGRAM_OPTIONS_LIBRARY}
+		)
+
+INSTALL (TARGETS ifvgrabber DESTINATION bin)
