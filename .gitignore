@@ -1,0 +1,9 @@
+builds/
+backup/
+debug/
+release/
+build/
+*.tar.gz
+*~
+dummyfile.cpp
+*.kdev4
