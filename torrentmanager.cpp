@@ -86,6 +86,8 @@ namespace IFVGrabber
 		handle.set_sequential_download (true);
 		handle.resume ();
 
+		Handles_.push_back (handle);
+
 		Timer_->async_wait (boost::bind (&TorrentManager::QueryLibtorrentForWarnings, this, _1));
 		IoService_.run ();
 	}
@@ -161,7 +163,14 @@ namespace IFVGrabber
 
 		void operator() (const libtorrent::piece_finished_alert& a) const
 		{
-			std::cout << a.message () << " 1 " << a.piece_index << std::endl;
+			const auto& info = a.handle.get_torrent_info ();
+			int pieceCount = info.num_pieces () / 100 + 1;
+			if (a.handle.status ().all_time_download > TorrentManager::DownloadSize_ &&
+					pieceCount < a.handle.status ().num_pieces)
+			{
+				a.handle.pause ();
+				std::cout << "torrent " << info.name () << " finished" << std::endl;
+			}
 		}
 	};
 

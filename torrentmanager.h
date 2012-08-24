@@ -37,7 +37,10 @@ namespace IFVGrabber
 		libtorrent::session *Session_;
 		boost::asio::io_service IoService_;
 		boost::asio::deadline_timer *Timer_;
+		std::list<libtorrent::torrent_handle> Handles_;
 	public:
+		static const int DownloadSize_ = 10000000;
+
 		TorrentManager ();
 		~TorrentManager ();
 
