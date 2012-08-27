@@ -37,18 +37,20 @@ namespace IFVGrabber
 		libtorrent::session *Session_;
 		boost::asio::io_service IoService_;
 		boost::asio::deadline_timer *Timer_;
-		std::list<libtorrent::torrent_handle> Handles_;
+		std::map<libtorrent::torrent_handle, std::pair<std::string, std::string>> DownloadedFile2SaveDir_;
 	public:
 		static const int DownloadSize_ = 10000000;
 
 		TorrentManager ();
 		~TorrentManager ();
 
-		void AddFile (const std::string& path);
-		void AddDownload (const std::string& path);
+		void AddFile (const std::string& torrent,
+				const std::string& file, const std::string& dir);
+		void AddDownload (const std::string& torrent,
+				const std::string& file, const std::string& dir);
 		void ParseFile (const std::string& path);
-		libtorrent::torrent_info GetTorrentInfo (const std::string& path);
 		void QueryLibtorrentForWarnings (const boost::system::error_code& error);
+		void PostDownloadHandler (const libtorrent::torrent_handle& handle);
 	private:
 		void Init ();
 		bool IsTorrentFile (const std::string& path) const;

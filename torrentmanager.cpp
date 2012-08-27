@@ -25,6 +25,7 @@
 
 
 #include <fstream>
+#include <sstream>
 #include <boost/filesystem.hpp>
 #include <libtorrent/torrent_handle.hpp>
 #include <libtorrent/add_torrent_params.hpp>
@@ -49,14 +50,46 @@ namespace IFVGrabber
 		delete Session_;
 	}
 
-	void TorrentManager::AddFile (const std::string& path)
+	void TorrentManager::AddFile (const std::string& torrent,
+			const std::string& file, const std::string& dir)
 	{
-		IsTorrentFile (path) ?
-			AddDownload (path) :
-			ParseFile (path);
+		if (IsTorrentFile (torrent))
+			AddDownload (torrent, file, dir);
 	}
 
-	void TorrentManager::AddDownload(const std::string& path)
+	namespace
+	{
+		libtorrent::torrent_info GetTorrentInfo (const std::string& torrent)
+		{
+			try
+			{
+				libtorrent::torrent_info result (torrent);
+				return result;
+			}
+			catch (const libtorrent::libtorrent_exception& e)
+			{
+				return libtorrent::torrent_info (libtorrent::sha1_hash ());
+			}
+		}
+
+		std::vector<int> GetSelectedFile (const std::string& torrent,
+				const std::string& file)
+		{
+			std::vector<int> result;
+			libtorrent::torrent_info info = GetTorrentInfo (torrent);
+			int distance = std::distance (info.begin_files (), info.end_files ());
+			if (!distance)
+				return std::vector<int> ();
+
+			for (auto it = info.begin_files (); it != info.end_files (); ++it)
+				result.push_back (it->filename () == file);
+
+			return result;
+		}
+	}
+
+	void TorrentManager::AddDownload (const std::string& torrent,
+			const std::string& file, const std::string& dir)
 	{
 		libtorrent::torrent_handle handle;
 
@@ -64,7 +97,7 @@ namespace IFVGrabber
 		try
 		{
 			libtorrent::add_torrent_params atp;
-			atp.ti = new libtorrent::torrent_info (GetTorrentInfo (path));
+			atp.ti = new libtorrent::torrent_info (GetTorrentInfo (torrent));
 			atp.auto_managed = false;
 			atp.storage_mode = libtorrent::storage_mode_sparse;
 			atp.paused = false;
@@ -83,40 +116,20 @@ namespace IFVGrabber
 			std::cout << "Runtime error" << std::endl;
 			return;
 		}
+
+		handle.prioritize_files (GetSelectedFile (torrent, file));
+
 		handle.set_sequential_download (true);
 		handle.resume ();
 
-		Handles_.push_back (handle);
+		DownloadedFile2SaveDir_ [handle] = std::make_pair (file, dir);
 
 		Timer_->async_wait (boost::bind (&TorrentManager::QueryLibtorrentForWarnings, this, _1));
 		IoService_.run ();
 	}
 
-	void TorrentManager::ParseFile(const std::string& path)
+	void TorrentManager::ParseFile(const std::string&)
 	{
-		std::ifstream file;
-		file.open (path, std::ifstream::in);
-		std::string pathToTorrent;
-		while (!file.eof ())
-		{
-			file >> pathToTorrent;
-			if (IsTorrentFile (pathToTorrent))
-				AddDownload (pathToTorrent);
-		}
-	}
-
-	libtorrent::torrent_info IFVGrabber::TorrentManager::GetTorrentInfo(const std::string& path)
-	{
-		boost::system::error_code ec;
-		try
-		{
-			libtorrent::torrent_info result (path, ec);
-			return result;
-		}
-		catch (const libtorrent::libtorrent_exception& e)
-		{
-			return libtorrent::torrent_info (libtorrent::sha1_hash ());
-		}
 	}
 
 	void TorrentManager::Init ()
@@ -154,22 +167,49 @@ namespace IFVGrabber
 		return true;
 	}
 
+	namespace
+	{
+		int GetSelectedPieces (const libtorrent::torrent_handle& handle)
+		{
+			const libtorrent::torrent_info& info = handle.get_torrent_info ();
+			std::vector<int> priorities  = handle.file_priorities ();
+			int pieceLength = info.piece_length ();
+			int result = 0;
+			for (int i = 0, size = priorities.size (); i < size; ++i)
+				if (priorities [i])
+				{
+					const libtorrent::file_entry& file = info.file_at (i);
+					result = file.size / pieceLength + 1;
+					break;
+				}
+
+			return result;
+		}
+	}
+
 	struct SimpleDispatcher
 	{
+		TorrentManager *Manager_;
+		SimpleDispatcher (TorrentManager *manager)
+		: Manager_ (manager)
+		{
+		}
+
 		void operator() (const libtorrent::state_changed_alert& a) const
 		{
-			std::cout << a.message () << " 0 " << a.state << std::endl;
+			std::cout << a.message () << std::endl;
 		}
 
 		void operator() (const libtorrent::piece_finished_alert& a) const
 		{
 			const auto& info = a.handle.get_torrent_info ();
-			int pieceCount = info.num_pieces () / 100 + 1;
+			int pieceCount = GetSelectedPieces (a.handle) / 100 + 1;
 			if (a.handle.status ().all_time_download > TorrentManager::DownloadSize_ &&
 					pieceCount < a.handle.status ().num_pieces)
 			{
 				a.handle.pause ();
 				std::cout << "torrent " << info.name () << " finished" << std::endl;
+				Manager_->PostDownloadHandler (a.handle);
 			}
 		}
 	};
@@ -180,7 +220,7 @@ namespace IFVGrabber
 			return;
 
 		std::auto_ptr<libtorrent::alert> a (Session_->pop_alert ());
-		SimpleDispatcher sd;
+		SimpleDispatcher sd (this);
 
 		while (a.get ())
 		{
@@ -203,5 +243,36 @@ namespace IFVGrabber
 		Timer_->expires_at (Timer_->expires_at () + boost::posix_time::seconds (2));
 		Timer_->async_wait (boost::bind (&TorrentManager::QueryLibtorrentForWarnings, this, _1));
 	}
+
+	void TorrentManager::PostDownloadHandler(const libtorrent::torrent_handle& handle)
+	{
+		Timer_->cancel ();
+		std::string dir = DownloadedFile2SaveDir_ [handle].second;
+		std::ostringstream oss (std::ostringstream::out);
+
+		const libtorrent::torrent_info& info = handle.get_torrent_info ();
+		int distance = std::distance (info.begin_files (), info.end_files ());
+		if (!distance)
+			return;
+
+		std::string path = distance == 1 ?
+			"/" + DownloadedFile2SaveDir_ [handle].first :
+			handle.name () + "/" + DownloadedFile2SaveDir_ [handle].first;
+
+		std::cout << "normalize pathes" << std::endl;
+		for (int i = 0, size = path.length (); i < size; ++i)
+			if (path [i] == ' ')
+			{
+				path.insert (i, "\\");
+				++i;
+			}
+
+		oss << "ffmpeg -i " << handle.save_path () + "/" + path <<  " -r 3 -f image2 " <<  dir << "/screenshot-%03d.jpg";
+		std::cout << oss.str () << std::endl;
+		std::cout << "start screenshot creating process..." << std::endl;
+		system (oss.str ().c_str ());
+		exit (0);
+	}
+
 }
 

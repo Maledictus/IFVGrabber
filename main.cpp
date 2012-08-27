@@ -32,10 +32,12 @@ int main (int argc, char *argv [])
 	boost::program_options::options_description description ("Allowed options");
 	description.add_options ()
 		("help,h", "show this message.")
-		("file,f", boost::program_options::value<std::string> (),
-				"file with pathes to torrents. This option overwrites --torrent.")
 		("torrent,t", boost::program_options::value<std::string> (),
-				"path to torrent file.");
+				"path to torrent file.")
+		("file,f", boost::program_options::value<std::string> (),
+				"relative path to file in torrent.")
+		("save,s", boost::program_options::value<std::string> (),
+				"directory to save images. Should exist.");
 
 	boost::program_options::variables_map vm;
 	boost::program_options::command_line_parser opts =
@@ -60,27 +62,16 @@ int main (int argc, char *argv [])
 		return 1;
 	}
 
-	std::string fileWithTorrents, torrent;
-	if (vm.count ("file"))
-		fileWithTorrents = vm ["file"].as<std::string> ();
-	else if (vm.count ("torrent"))
+	std::string torrent, file, path;
+	if (vm.count ("torrent"))
 		torrent = vm ["torrent"].as<std::string> ();
-	else
-	{
-		std::cout << "Unknown parameter." << std::endl;
-		return 1;
-	}
-
-
-	std::string path = fileWithTorrents.empty () ? torrent : fileWithTorrents;
-	if (path.empty ())
-	{
-		std::cout << "Please, set --file or --torrent parameter." << std::endl;
-		return 1;
-	}
+	if (vm.count ("file"))
+		file = vm ["file"].as<std::string> ();
+	if (vm.count ("save"))
+		path = vm ["save"].as<std::string> ();
 
 	IFVGrabber::TorrentManager *manager = new IFVGrabber::TorrentManager;
-	manager->AddFile (path);
+	manager->AddFile (torrent, file, path);
 
 	char a;
 	std::cin.unsetf(std::ios_base::skipws);
